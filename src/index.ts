@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * json-schema-validator - Fast JSON Schema validation middleware
- * Built with Zo Computer by The BookMaster
+ * Built by Retsumdk
  */
 
 import { Command } from "commander";
