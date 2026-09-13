@@ -1,51 +1,105 @@
-#!/usr/bin/env bun
-/**
- * json-schema-validator - Fast JSON Schema validation middleware
- * Built by Retsumdk
- */
+/** Public API: the `Validator` class, a schema compiler, framework-agnostic
+ * middleware, and convenience functions. Zero runtime dependencies. */
 
-import { Command } from "commander";
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import type { JsonSchema, ValidateResult, ValidatorOptions } from "./types";
+import { ValidationError } from "./errors";
+import { Kernel } from "./core/validator";
 
-interface Config {
-  apiKey?: string;
-  baseUrl: string;
-  timeout: number;
-  retries: number;
-}
+/** Reusable validator with per-schema compiled kernels (parse once, validate many). */
+export class Validator {
+  private readonly options: ValidatorOptions;
+  private readonly kernels = new WeakMap<object, Kernel>();
 
-const DEFAULTS: Config = {
-  baseUrl: "https://api.example.com",
-  timeout: 30000,
-  retries: 3,
-};
-
-function loadConfig(): Config {
-  const cfgPath = join(process.cwd(), "config.json");
-  if (existsSync(cfgPath)) {
-    try {
-      return { ...DEFAULTS, ...JSON.parse(readFileSync(cfgPath, "utf-8")) };
-    } catch { /* ignore */ }
+  constructor(options: ValidatorOptions = {}) {
+    this.options = options;
   }
-  return { ...DEFAULTS };
+
+  private kernel(schema: JsonSchema): Kernel {
+    if (typeof schema !== "object") return new Kernel(schema, this.options);
+    const key = schema as object;
+    let k = this.kernels.get(key);
+    if (!k) {
+      k = new Kernel(schema, this.options);
+      this.kernels.set(key, k);
+    }
+    return k;
+  }
+
+  /** Validate `data` against `schema`. Always returns, never throws. */
+  validate(data: unknown, schema: JsonSchema): ValidateResult {
+    const errors = this.kernel(schema).validate(data);
+    return { valid: errors.length === 0, errors };
+  }
+
+  /** Validate and throw a `ValidationError` carrying all issues on failure. */
+  assert(data: unknown, schema: JsonSchema): void {
+    const { valid, errors } = this.validate(data, schema);
+    if (!valid) throw new ValidationError(errors);
+  }
+
+  /** Compile a schema into a reusable predicate: `(data) => boolean`. */
+  compile(schema: JsonSchema): (data: unknown) => boolean {
+    const kernel = this.kernel(schema);
+    return (data) => kernel.validate(data).length === 0;
+  }
+
+  /**
+   * Express / Connect-compatible request middleware. Validates `req.body`
+   * against `schema` and short-circuits with a 400 (configurable) JSON error
+   * listing every issue; otherwise calls `next()`.
+   */
+  middleware(
+    schema: JsonSchema,
+    opts: { status?: number; pick?: (req: { body?: unknown }) => unknown } = {},
+  ): (req: { body?: unknown }, res: { status: (n: number) => unknown; json: (o: unknown) => unknown }, next: () => void) => void {
+    const kernel = this.kernel(schema);
+    const status = opts.status ?? 400;
+    return (req, res, next) => {
+      let target: unknown = req.body;
+      if (opts.pick) {
+        try {
+          target = opts.pick(req);
+        } catch (e) {
+          const err = new ValidationError([{ instancePath: "", schemaPath: "", keyword: "pick", message: `body extractor failed: ${(e as Error).message}` }]);
+          res.status(status);
+          res.json({ error: ErrorBody(err) });
+          return;
+        }
+      }
+      const errors = kernel.validate(target);
+      if (errors.length === 0) {
+        next();
+        return;
+      }
+      const err = new ValidationError(errors);
+      res.status(status);
+      res.json({ error: ErrorBody(err) });
+    };
+  }
 }
 
-async function main(cfg: Config) {
-  console.log(`[${name}] Connected to ${cfg.baseUrl}`);
-  console.log(`[${name}] Timeout: ${cfg.timeout}ms | Retries: ${cfg.retries}`);
-  // TODO: implement your logic here
-  console.log(`[${name}] Done.`);
+function ErrorBody(err: ValidationError) {
+  return {
+    code: "validation_failed",
+    message: err.message,
+    issues: err.errors,
+  };
 }
 
-const program = new Command();
-program.name("json-schema-validator").description("Fast JSON Schema validation middleware").version("1.0.0")
-  .option("-c, --config <path>", "Config file path", "config.json")
-  .option("-v, --verbose", "Verbose mode")
-  .action(async (opts) => {
-    const cfg = loadConfig();
-    if (opts.verbose) console.log("Verbose mode on");
-    try { await main(cfg); }
-    catch (e) { console.error(`Error: ${e}`); process.exit(1); }
-  });
-program.parse(process.argv);
+/** Validate `data` against `schema`, returning `{ valid, errors }`. */
+export function validate(data: unknown, schema: JsonSchema, options?: ValidatorOptions): ValidateResult {
+  return new Validator(options).validate(data, schema);
+}
+
+/** Validate and throw on failure (one-shot convenience). */
+export function assertValid(data: unknown, schema: JsonSchema, options?: ValidatorOptions): void {
+  new Validator(options).assert(data, schema);
+}
+
+/** Compile a one-shot validate-predicate. */
+export function compile(schema: JsonSchema, options?: ValidatorOptions): (data: unknown) => boolean {
+  return new Validator(options).compile(schema);
+}
+
+export * from "./types";
+export { ValidationError } from "./errors";

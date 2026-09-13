@@ -1,17 +1,50 @@
 {
   "name": "json-schema-validator",
-  "description": "Fast JSON Schema validation middleware",
-  "version": "1.0.0",
+  "description": "Fast, dependency-free JSON Schema validator for draft-07 — library, CLI, and Express-style middleware with $ref resolution and built-in format assertions.",
+  "version": "1.1.0",
   "type": "module",
+  "author": "Retsumdk",
+  "license": "MIT",
+  "keywords": [
+    "json-schema",
+    "json",
+    "validation",
+    "validator",
+    "draft-07",
+    "jsonschema",
+    "middleware",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Retsumdk/json-schema-validator.git"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "json-schema-validator": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.0.0",
+    "node": ">=18"
+  },
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "test": "bun test",
     "build": "tsc"
   },
-  "dependencies": {
-    "commander": "^11.1.0"
-  },
   "devDependencies": {
-    "bun-types": "^1.0.0",
+    "@types/bun": "^1.0.0",
     "typescript": "^5.3.0"
   }
 }
